@@ -5,7 +5,7 @@ description = "Stremio's fastest torrent/debrid search add-on."
 authors = ["Goldy"]
 license = "MIT"
 readme = "README.md"
-repository = "https://github.com/g0ldyy/comet"
+repository = "https://github.com/SillyHippy/comet"
 
 [tool.poetry.dependencies]
 python = "^3.11"
