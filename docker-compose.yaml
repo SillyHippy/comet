@@ -1,14 +1,112 @@
-volumes:
-  comet_data:
-
 services:
   comet:
-    container_name: comet
     image: g0ldyy/comet
+    container_name: comet
     restart: unless-stopped
-    ports:
-      - "8000:8000"
-    env_file:
-      - .env
+    expose:
+      - 8000
     volumes:
       - comet_data:/data
+    env_file:
+      - ./comet.env
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://127.0.0.1:8000/health || exit 1
+      interval: 60s
+      timeout: 10s
+      retries: 5
+    depends_on:
+      warp:
+        condition: service_healthy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.comet.rule=Host(`domain.xyz`)"
+      - "traefik.http.routers.comet.entrypoints=websecure"
+      - "traefik.http.routers.comet.tls.certresolver=myresolver"
+
+  zilean:
+    image: ipromknight/zilean:latest
+    container_name: zilean
+    restart: unless-stopped
+    volumes:
+      - zilean_data:/app/data
+      - zilean_tmp:/tmp
+    environment:
+      Zilean__Database__ConnectionString: "Host=postgres;Port=5432;Database=zilean;Username=postgres;Password=password;Include Error Detail=true;Timeout=30;CommandTimeout=3600;"
+      Zilean__EnableDashboard: "true"
+      Zilean__Dmm__ImportBatched: "true"
+    healthcheck:
+      test: curl --connect-timeout 10 --silent --show-error --fail http://localhost:8181/healthchecks/ping
+      interval: 30s
+      timeout: 60s
+      retries: 10
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16.3-alpine3.20
+    container_name: postgres
+    restart: unless-stopped
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=zilean
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+    build:
+      context: .
+      shm_size: 2gb
+    shm_size: 2gb
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  warp:
+    image: monius/docker-warp-socks:latest
+    container_name: warp
+    restart: unless-stopped
+    environment:
+      - NET_PORT=1080
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    sysctls:
+      - net.ipv6.conf.all.disable_ipv6=0
+      - net.ipv4.conf.all.src_valid_mark=1
+    volumes:
+      - warp_data:/lib/modules
+    healthcheck:
+      test: curl -x "socks5h://127.0.0.1:1080" -fsSL "https://www.cloudflare.com/cdn-cgi/trace" | grep -qE "warp=(plus|on)" || exit 1
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  traefik:
+    image: traefik:v2.8
+    container_name: traefik
+    restart: unless-stopped
+    ports:
+      - 443:443
+      - 127.0.0.1:8080:8080
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entryPoints.websecure.address=:443"
+      - "--certificatesresolvers.myresolver.acme.tlschallenge=true"
+      - "--certificatesresolvers.myresolver.acme.email=comet@domain.xyz"
+      - "--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      - "./letsencrypt:/letsencrypt"
+
+volumes:
+  betacomet_data:
+  backupcomet_data:
+  comet_data:
+  zilean_data:
+  zilean_tmp:
+  postgres_data:
+  warp_data:
